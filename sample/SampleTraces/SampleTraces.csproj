@@ -2,10 +2,13 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <!-- the Diagnostics folder is copied from SejilSQL (feature/slow-traces), which is written without nullable annotations -->
-    <Nullable>disable</Nullable>
+    <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SejilDuckDB\SejilDuckDB.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Serilog.AspNetCore" Version="11.0.0" />

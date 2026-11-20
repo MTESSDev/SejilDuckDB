@@ -1,3 +1,5 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
@@ -7,7 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 
-namespace SejilSQL.Diagnostics
+namespace SejilDuckDB.Diagnostics
 {
     /// <summary>Puts <see cref="SlowTraceMiddleware"/> in front of the pipeline of the application.</summary>
     internal sealed class SlowTraceStartupFilter : IStartupFilter

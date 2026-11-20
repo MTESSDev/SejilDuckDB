@@ -1,3 +1,5 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -8,11 +10,11 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace SejilSQL.Diagnostics
+namespace SejilDuckDB.Diagnostics
 {
     /// <summary>
     /// Listens to the spans of the application (<see cref="Activity"/>) and turns the slow or failed requests into log events,
-    /// so they reach the sinks already in place (SejilSQL included). A request that is fast and succeeds leaves nothing.
+    /// so they reach the sinks already in place (SejilDuckDB included). A request that is fast and succeeds leaves nothing.
     /// <para>
     /// A request is the span that has no parent in this process (an incoming request, or an outgoing call made by a background job)
     /// and the spans below it. Its steps are kept in memory while it runs; when it ends, if it was slow or one of its steps failed,
@@ -40,7 +42,7 @@ namespace SejilSQL.Diagnostics
         public SlowTraceService(SejilTraceOptions options, ILoggerFactory loggerFactory, InFlightTracker inFlight = null)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
-            _logger = (loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory))).CreateLogger("SejilSQL.Traces");
+            _logger = (loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory))).CreateLogger("SejilDuckDB.Traces");
             _inFlight = inFlight ?? new InFlightTracker();
         }
 

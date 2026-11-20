@@ -1,8 +1,10 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using SejilSQL.Diagnostics;
+using SejilDuckDB.Diagnostics;
 
 namespace Microsoft.Extensions.DependencyInjection
 {
@@ -12,7 +14,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// Logs the slow or failed operations of the application (incoming requests, outgoing HTTP calls) with their trace id,
         /// and a warning when the thread pool is starved. Fast operations leave nothing behind.
         /// <para>
-        /// The events go through <c>ILogger</c>, so they reach the sinks already configured (the SejilSQL sink included).
+        /// The events go through <c>ILogger</c>, so they reach the sinks already configured (the SejilDuckDB sink included).
         /// For them to be written, the minimum level of the logger must let Warning through.
         /// </para>
         /// </summary>

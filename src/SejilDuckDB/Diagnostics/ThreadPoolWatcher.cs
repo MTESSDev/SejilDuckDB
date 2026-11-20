@@ -1,3 +1,5 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using System.Diagnostics;
 using System.Threading;
@@ -5,7 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace SejilSQL.Diagnostics
+namespace SejilDuckDB.Diagnostics
 {
     /// <summary>
     /// Detects thread pool starvation (requests piling up because every thread is busy or blocked) and logs it, and logs nothing
@@ -28,14 +30,14 @@ namespace SejilSQL.Diagnostics
         {
             _inFlight = inFlight;
             _options = options ?? throw new ArgumentNullException(nameof(options));
-            _logger = (loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory))).CreateLogger("SejilSQL.ThreadPool");
+            _logger = (loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory))).CreateLogger("SejilDuckDB.ThreadPool");
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
             if (_options.ThreadPoolWatcher && _thread == null)
             {
-                _thread = new Thread(Run) { IsBackground = true, Name = "SejilSQL.ThreadPoolWatcher" };
+                _thread = new Thread(Run) { IsBackground = true, Name = "SejilDuckDB.ThreadPoolWatcher" };
                 _thread.Start();
             }
 

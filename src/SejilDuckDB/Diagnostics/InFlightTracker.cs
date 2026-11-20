@@ -1,10 +1,12 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 
-namespace SejilSQL.Diagnostics
+namespace SejilDuckDB.Diagnostics
 {
     /// <summary>
     /// The incoming requests being served right now. When the thread pool is starved this is the first suspect list: a route with

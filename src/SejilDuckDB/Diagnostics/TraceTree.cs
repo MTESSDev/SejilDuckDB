@@ -1,3 +1,5 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -5,7 +7,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 
-namespace SejilSQL.Diagnostics
+namespace SejilDuckDB.Diagnostics
 {
     /// <summary>What is kept of a span once it has ended: enough to draw the tree of a slow request.</summary>
     internal sealed class SpanRecord

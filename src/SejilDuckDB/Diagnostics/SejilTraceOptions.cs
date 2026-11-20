@@ -1,8 +1,10 @@
+#nullable disable // written without nullable annotations, like the same code in SejilSQL
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace SejilSQL.Diagnostics
+namespace SejilDuckDB.Diagnostics
 {
     /// <summary>
     /// Settings of <c>AddSejilSlowTraces</c>: which slow or failed operations become log events, and when the thread pool is reported as starved.

@@ -1,6 +1,6 @@
 ﻿# SejilDuckDB
 
-> **Beta** (`0.1.0-beta.2`). Tested with real files, a real DuckDB and two real servers behind a header-aware balancer, but not yet in production behind IIS and the real load balancer.
+> **Beta** (`0.1.0-beta.3`). Tested with real files, a real DuckDB and two real servers behind a header-aware balancer, but not yet in production behind IIS and the real load balancer.
 
 A log site for ASP.NET Core with **no database server**. Applications send their logs with `Serilog.Sinks.Http`; the site keeps them in **local JSON Lines files** (one per day, compressed to `.gz` after a few days, deleted after a retention) and a web viewer searches them with **DuckDB**.
 
@@ -111,6 +111,40 @@ Measured on this machine (10-core ARM laptop CPU, SSD) with **100 000 events a d
 
 Run it yourself: `SEJIL_BENCH=1 SEJIL_BENCH_DAYS=7 dotnet test --filter Category=Benchmark --logger "console;verbosity=detailed"`.
 
+## Slow requests and thread pool starvation
+
+`AddSejilSlowTraces` is in this package, for the applications that send their logs here (and for the site itself). It turns the **slow or failed requests** into log events, and keeps **nothing** for the fast ones. It needs no extra package: it listens to the spans .NET already emits (`System.Diagnostics.Activity`) for incoming ASP.NET Core requests and outgoing `HttpClient` calls. The events go through `ILogger`, so they reach whichever sinks are configured (`Serilog.Sinks.Http`, or the local sink above).
+
+```csharp
+builder.Services.AddSejilSlowTraces(o =>
+{
+    o.SlowThreshold = TimeSpan.FromMilliseconds(1000);   // default
+});
+```
+
+- A **request** is the span that has no parent in the process (an incoming request, or a call made by a background job) and everything that ran under it. When it lasts `SlowThreshold` or more it is logged as ONE **Warning** with the whole tree of its steps; when it, or one of its steps, ended in error it is logged as an **Error**, whatever its duration. A fast request that succeeds leaves nothing.
+- The tree is in the `Trace` property, each step with the time it took, its status and when it started:
+
+  ```
+  Slow GET /chain took 1841 ms; slowest step: GET http://inventory/api/stock 1214 ms
+
+  GET /chain  1841 ms [200]
+  ├─ GET http://inventory/api/stock  1214 ms [200]  (+13 ms)
+  └─ GET http://payments/charge  612 ms [200]  (+1228 ms)
+  ```
+
+  Query strings are left out (they can hold secrets). At most `TraceTreeMaxLines` (40) lines. A call to another service is one line: the time **the caller waited**. If that service also uses this, it logs its own side when it is slow itself, with the **same `TraceId`**: `TraceId = '...'` in the viewer puts the two sides together (a service that answers fast leaves nothing, so its own breakdown is not there).
+- Each event has `TraceId`, `SpanId`, `ParentSpanId`, `SpanKind`, `SpanCount` and a short list of tags (`http.route`, `http.response.status_code`, `server.address`, `error.type`; add some with `o.Tags.Add(...)`, they can carry personal data).
+- ASP.NET Core records the span of a request without saying which request it is. A small middleware, put in front of the pipeline by `AddSejilSlowTraces`, names it (`GET /orders/{id}`, the route pattern), adds the status code, and marks a **5xx the application returned** as failed (ASP.NET Core only does so for an unhandled exception).
+- Listen to more sources with `o.ActivitySources.Add("MySource")`. `System.Data.SqlClient` emits no span; to see SQL queries add an instrumentation that does (for example `OpenTelemetry.Instrumentation.SqlClient`) and its source.
+- If the logs are sent with `Serilog.Sinks.Http`, ignore the calls to the log site so that the logs do not feed themselves: `o.Filter = a => !(a.GetTagItem("url.full") is string url && url.Contains("/log"))`. On the site itself, with the local sink, there is no such loop; to leave its own `POST /log` out anyway: `o.Filter = a => a.GetTagItem("sejil.request") as string != "POST /log"`.
+
+**Thread pool starvation.** A watcher runs on a thread of its own, outside the pool, so it keeps working when the pool is starved. Every 5 s it queues a work item and times how long the pool takes to start it. When that wait reaches 250 ms, or 50 work items are waiting, twice in a row, it logs a Warning with `ThreadCount`, `BusyWorkerThreads`, `MinWorkerThreads`, `MaxWorkerThreads` and **`InFlightRequests`**, the incoming requests being served at that moment grouped by route, busiest first: `18× GET /block (oldest 7.1 s)`. It repeats at most once a minute and logs when the pool is back to normal. A healthy application logs nothing. Settings: `ThreadPoolWatcher`, `ThreadPoolSamplePeriod`, `ThreadPoolLatencyThreshold`, `ThreadPoolPendingThreshold`, `ThreadPoolConsecutiveSamples`, `ThreadPoolRepeatEvery`.
+
+`InFlightRequests` names the routes to look at, not the line of code: a request that blocks a thread and one that awaits a database without holding any are both "in flight". For the stacks of the busy threads use `dotnet-stack report -p <pid>` or `dotnet-dump` while it happens. And it does **not** show the requests that **suffer** from the starvation: a request that waits in the server's queue for a free thread has not started yet, so its span does not exist and the wait is counted nowhere (in a test, a `/fast` request took 21 s for the client and was not logged as slow). Starvation is told by the warning and by `InFlightRequests`, not by slow requests.
+
+See [sample/SampleTraces](sample/SampleTraces): `/chain` (a request that calls two services), `/fail` (a 500), `/block` (call it 80 times at once to starve the pool).
+
 ## Settings
 
 All on `SejilDuckOptions` (bindable from configuration, see the sample's `appsettings.json`):
@@ -134,7 +168,7 @@ All on `SejilDuckOptions` (bindable from configuration, see the sample's `appset
 - **Several processes on one folder** (IIS keeps the old process alive while it recycles, or a sink runs in another process) take turns to write: a file is opened for writing by one process at a time, and a second one waits for it (a few milliseconds). Tested with two real processes and eight clients at full speed: nothing lost. (`FileMode.Append` does not append atomically in .NET: the first version of this library let two writers overwrite each other and lost about 6 % of the events with two processes.)
 - **A request that is aborted** while its events wait to be written does not take them back: they are written all the same, and a sender that sends them again leaves a duplicate.
 - **DuckDB is a native library** (`DuckDB.NET.Data.Full`). Publish for the platform of the server (`win-x64`) and check that it loads there.
-- Not covered: the OpenTelemetry traces and metrics (see `AddSejilSlowTraces` in SejilSQL for slow requests and thread pool starvation, which are plain log events and work here too).
+- Not covered: OpenTelemetry **metrics**, and a trace viewer. What is covered is the slow or failed requests, as plain log events (see below).
 
 ## Building
 
@@ -142,7 +176,7 @@ All on `SejilDuckOptions` (bindable from configuration, see the sample's `appset
 
 ```powershell
 dotnet build
-dotnet test                                      # 75 tests, real DuckDB and real files
+dotnet test                                      # 107 tests, real DuckDB and real files
 cd src/SejilDuckDB.Client
 npm install
 npm test                                         # 33 tests
