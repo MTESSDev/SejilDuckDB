@@ -55,7 +55,12 @@ public sealed class SejilDuckOptions
     /// </summary>
     public TimeSpan SearchBudget { get; set; } = TimeSpan.FromSeconds(8);
 
-    /// <summary>Minimum log level shared by the applications (<c>GET {Url}/min-log-level</c>). It is kept on disk. Warning until someone changes it.</summary>
+    /// <summary>
+    /// The minimum log level, while nobody has changed it in the viewer (that is kept in <c>config.json</c> beside the log files).
+    /// Warning by default. <b>The site applies it</b>: an event below it is not written, whether it comes in on <c>/log</c> or from the local
+    /// sink (the route still answers 200: there was nothing wrong with the batch). The applications can read it on
+    /// <c>GET {Url}/min-log-level</c> to stop producing what would be thrown away. Lower it in the viewer to keep Information or Debug.
+    /// </summary>
     public string MinimumLogLevel { get; set; } = "Warning";
 
     /// <summary>Extra route (GET and POST) for the minimum log level, for when <see cref="Url"/> is behind authentication but the applications must read it anonymously.</summary>

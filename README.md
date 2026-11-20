@@ -1,6 +1,6 @@
 ﻿# SejilDuckDB
 
-> **Beta** (`0.1.0-beta.3`). Tested with real files, a real DuckDB and two real servers behind a header-aware balancer, but not yet in production behind IIS and the real load balancer.
+> **Beta** (`0.1.0-beta.4`). Tested with real files, a real DuckDB and two real servers behind a header-aware balancer, but not yet in production behind IIS and the real load balancer.
 
 A log site for ASP.NET Core with **no database server**. Applications send their logs with `Serilog.Sinks.Http`; the site keeps them in **local JSON Lines files** (one per day, compressed to `.gz` after a few days, deleted after a retention) and a web viewer searches them with **DuckDB**.
 
@@ -77,6 +77,15 @@ What the viewer does:
 - **Searches** go to every server and are merged, newest first, a page at a time. Each row shows its server. A server that does not answer is reported (*"results are partial"*, with *Retry*): the others still show.
 - **Saved queries and the minimum log level** are written to **every** server, and refused if one of them fails, so that they cannot disagree without anyone knowing. Repeating the change is harmless.
 - If every call reaches the same server (the header is not honoured), the viewer says so, and each event still appears once.
+
+## Minimum log level
+
+**Warning by default, and the site applies it**: an event below the minimum level is **not written**, whether it comes in on `/log` or from the local sink. (The route still answers `200`: there was nothing wrong with the batch, so the sender must not send it again.) Information and Debug are therefore not kept unless somebody asks for them:
+
+- **In the viewer** (the settings menu): the level is written to the `config.json` of **every** server and applies at once, with no restart. It is read again every 2 seconds, so a change made by another process or by hand is seen too.
+- **With the option** `MinimumLogLevel` (`"Information"`, `"Debug"`, `"Verbose"`...): the level while nobody has changed it in the viewer, that is while there is no `config.json`.
+
+The applications can read the level on `GET /logs/min-log-level` (anonymous) and stop producing what would be thrown away. The site cannot make an application produce *more*: to see Debug the application's own logger must let Debug through, and the site's level must be Debug or lower.
 
 ## Files
 
@@ -157,7 +166,7 @@ All on `SejilDuckOptions` (bindable from configuration, see the sample's `appset
 | `NodeName` / `NodeHeader` / `Nodes` | machine name / `x-nlb2` / empty (one server) |
 | `CompressAfterDays` / `RetentionDays` | 7 / 90 (null: never) |
 | `PageSize` / `SearchBudget` | 100 / 8 s |
-| `MinimumLogLevel` | `Warning` (the level the applications read on `GET /logs/min-log-level`) |
+| `MinimumLogLevel` | `Warning`: the level while there is no `config.json`; **applied by the site** (see above) |
 | `QueueLimit` | 50000 events waiting to be written, from `/log` and the sink together |
 | `DuckDbMemoryLimit` / `DuckDbThreads` | DuckDB's own |
 
@@ -176,7 +185,7 @@ All on `SejilDuckOptions` (bindable from configuration, see the sample's `appset
 
 ```powershell
 dotnet build
-dotnet test                                      # 107 tests, real DuckDB and real files
+dotnet test                                      # 128 tests, real DuckDB and real files
 cd src/SejilDuckDB.Client
 npm install
 npm test                                         # 33 tests

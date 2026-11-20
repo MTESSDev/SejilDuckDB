@@ -9,7 +9,7 @@
     <AssemblyName>SejilDuckDB</AssemblyName>
 
     <PackageId>SejilDuckDB</PackageId>
-    <Version>0.1.0-beta.3</Version>
+    <Version>0.1.0-beta.4</Version>
     <Authors>Alaa Masoud, Dany CÃ´tÃ©</Authors>
     <Copyright>Copyright Â© Alaa Masoud, Dany CÃ´tÃ©</Copyright>
     <Description>Receives Serilog logs over HTTP (Serilog.Sinks.Http), keeps them in local JSON Lines files (compressed to .gz after a few days) and lets you browse them with a web viewer. Searches are run by DuckDB. Several servers can be browsed together: the viewer queries each of them and merges the answers.</Description>

@@ -3,6 +3,8 @@ using Serilog;
 // An application that sends its logs to the log site (SampleApp, or any site that calls AddSejilDuck / MapSejilDuck).
 //   dotnet run -- http://localhost:5000/log
 // The site answers 503 when it cannot write a batch, and Serilog.Sinks.Http keeps the batch and sends it again.
+// This sample sends every level, but the site only KEEPS what is at or above its minimum log level (Warning by default): lower it in
+// the viewer, or with the MinimumLogLevel option, to see the Information and Debug events below.
 var url = args.FirstOrDefault() ?? Environment.GetEnvironmentVariable("SEJIL_LOG_URL") ?? "http://localhost:5000/log";
 
 Log.Logger = new LoggerConfiguration()

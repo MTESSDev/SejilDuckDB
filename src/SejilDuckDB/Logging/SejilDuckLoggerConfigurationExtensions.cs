@@ -77,6 +77,6 @@ public static class SejilDuckLoggerConfigurationExtensions
             ? Assembly.GetEntryAssembly()?.GetName().Name ?? AppDomain.CurrentDomain.FriendlyName
             : sourceApp;
 
-        return sinkConfiguration.Sink(new SejilDuckSink(store.Queue, app, TimeSpan.FromSeconds(flushTimeoutSeconds)), restrictedToMinimumLevel);
+        return sinkConfiguration.Sink(new SejilDuckSink(store, app, TimeSpan.FromSeconds(flushTimeoutSeconds)), restrictedToMinimumLevel);
     }
 }

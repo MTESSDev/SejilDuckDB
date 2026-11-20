@@ -33,14 +33,16 @@ internal sealed class LogFileStore
     private static readonly IdGenerator Ids = new();
 
     /// <param name="directory">The folder of the log files.</param>
+    /// <param name="defaultMinimumLevel">The minimum level while the folder has no <c>config.json</c> (3: Warning), when this store is the first on the folder.</param>
     /// <param name="queueLimit">Most events waiting to be written (see <see cref="WriteQueue"/>), when this store is the first on the folder.</param>
-    public LogFileStore(string directory, int queueLimit = WriteQueue.DefaultLimit)
+    public LogFileStore(string directory, int queueLimit = WriteQueue.DefaultLimit, int defaultMinimumLevel = MinimumLevelStore.DefaultLevel)
     {
         Directory = directory;
         System.IO.Directory.CreateDirectory(directory);
 
         // The queue of the folder, shared by every store on it: the route /log and a local sink write through the same one.
         var full = Path.GetFullPath(directory);
+        MinimumLevel = MinimumLevelStore.For(full, defaultMinimumLevel);
         Queue = WriteQueue.For(full, () => new WriteQueue(
             batch => WriteBatchAsync(full, batch),
             queueLimit,
@@ -62,7 +64,32 @@ internal sealed class LogFileStore
     /// never a loss).
     /// </summary>
     public Task<bool> TryAppendAsync(IReadOnlyList<LogEvent> events, string sourceApp, CancellationToken cancellationToken = default)
-        => Queue.SubmitAsync(events, sourceApp);
+    {
+        var kept = AboveMinimumLevel(events);
+        return kept.Count == 0 ? Task.FromResult(true) : Queue.SubmitAsync(kept, sourceApp);   // nothing left to write is a success
+    }
+
+    /// <summary>
+    /// Puts the events in the queue and returns at once (the local sink). False: the queue was full and they were dropped.
+    /// The events below the minimum level are not kept, and that is not a failure.
+    /// </summary>
+    public bool TryEnqueue(IReadOnlyList<LogEvent> events, string sourceApp)
+    {
+        var kept = AboveMinimumLevel(events);
+        return kept.Count == 0 || Queue.TryEnqueue(kept, sourceApp);
+    }
+
+    /// <summary>
+    /// The minimum level of the folder, applied where the route and the sink meet: an event below it is not written, whichever way it
+    /// came. It is what the viewer shows and changes, and what the applications can read.
+    /// </summary>
+    public MinimumLevelStore MinimumLevel { get; }
+
+    private IReadOnlyList<LogEvent> AboveMinimumLevel(IReadOnlyList<LogEvent> events)
+    {
+        var minimum = MinimumLevel.Level;
+        return events.All(e => e.Level >= minimum) ? events : events.Where(e => e.Level >= minimum).ToList();
+    }
 
     // What the writer of the queue does with what has gathered: one append per day-file for the whole batch.
     private static async Task<bool> WriteBatchAsync(string directory, IReadOnlyList<(LogEvent Event, string App)> batch)

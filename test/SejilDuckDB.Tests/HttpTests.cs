@@ -25,6 +25,7 @@ public sealed class HttpTests : IAsyncLifetime
             o.DataDirectory = _directory;
             o.NodeName = "srv-a";
             o.Title = "Test logs";
+            o.MinimumLogLevel = "Verbose";   // these tests send Information events; the default Warning would drop them (see MinimumLevelTests)
             o.Nodes.AddRange(new[] { "srv-a", "srv-b" });
         });
 
@@ -39,6 +40,7 @@ public sealed class HttpTests : IAsyncLifetime
         await _app.StopAsync();
         await _app.DisposeAsync();
         SejilDuckDB.Storage.WriteQueue.Forget(_directory);
+        SejilDuckDB.Storage.MinimumLevelStore.Forget(_directory);
         try
         {
             Directory.Delete(_directory, recursive: true);
@@ -222,7 +224,7 @@ public sealed class HttpTests : IAsyncLifetime
     [Fact]
     public async Task The_minimum_level_is_shared_and_remembered()
     {
-        Assert.Equal("Warning", (await _client.GetFromJsonAsync<JsonElement>("/logs/min-log-level")).GetProperty("minimumLogLevel").GetString());
+        Assert.Equal("Verbose", (await _client.GetFromJsonAsync<JsonElement>("/logs/min-log-level")).GetProperty("minimumLogLevel").GetString());   // the default these tests were started with
 
         Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/logs/min-log-level", new StringContent("\"error\""))).StatusCode);
 

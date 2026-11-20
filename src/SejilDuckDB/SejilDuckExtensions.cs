@@ -44,7 +44,8 @@ public static class SejilDuckExtensions
             var directory = Path.IsPathRooted(settings.DataDirectory)
                 ? settings.DataDirectory
                 : Path.Combine(provider.GetRequiredService<IHostEnvironment>().ContentRootPath, settings.DataDirectory);
-            return new LogFileStore(directory, settings.QueueLimit);
+            return new LogFileStore(directory, settings.QueueLimit,
+                Levels.TryParse(settings.MinimumLogLevel, out var minimum) ? minimum : MinimumLevelStore.DefaultLevel);
         });
         services.TryAddSingleton<LogReader>();
         services.TryAddSingleton<MetaStore>();

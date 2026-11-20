@@ -157,7 +157,7 @@ public class SerilogSinkTests
             var site = new Site();
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
-            builder.Services.AddSejilDuck(o => { o.DataDirectory = site._directory; o.NodeName = "srv-a"; });
+            builder.Services.AddSejilDuck(o => { o.DataDirectory = site._directory; o.NodeName = "srv-a"; o.MinimumLogLevel = "Verbose"; });
             site.App = builder.Build();
             site.App.MapSejilDuck();
             await site.App.StartAsync();
@@ -170,6 +170,7 @@ public class SerilogSinkTests
             await App.StopAsync();
             await App.DisposeAsync();
             WriteQueue.Forget(_directory);
+            MinimumLevelStore.Forget(_directory);
             try { Directory.Delete(_directory, recursive: true); } catch (IOException) { }
         }
     }

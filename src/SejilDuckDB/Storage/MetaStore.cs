@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace SejilDuckDB.Storage;
 
@@ -15,14 +14,12 @@ internal sealed class MetaStore
 
     private readonly object _lock = new();
     private readonly string _queriesPath;
-    private readonly string _configPath;
-    private readonly string _defaultLevel;
+    private readonly MinimumLevelStore _level;
 
-    public MetaStore(LogFileStore store, IOptions<SejilDuckOptions> options)
+    public MetaStore(LogFileStore store)
     {
         _queriesPath = Path.Combine(store.Directory, "queries.json");
-        _configPath = Path.Combine(store.Directory, "config.json");
-        _defaultLevel = Levels.TryParse(options.Value.MinimumLogLevel, out var level) ? Levels.Name(level) : "Warning";
+        _level = store.MinimumLevel;
     }
 
     public IReadOnlyList<SavedQuery> Queries()
@@ -65,27 +62,10 @@ internal sealed class MetaStore
         }
     }
 
-    public string MinimumLevel()
-    {
-        lock (_lock)
-        {
-            var config = Load<Config>(_configPath);
-            return config?.MinimumLogLevel is { } level && Levels.TryParse(level, out var parsed) ? Levels.Name(parsed) : _defaultLevel;
-        }
-    }
+    /// <summary>The minimum level, by name. The site applies it: an event below it is not written.</summary>
+    public string MinimumLevel() => Levels.Name(_level.Level);
 
-    public void SetMinimumLevel(int level)
-    {
-        lock (_lock)
-        {
-            Save(_configPath, new Config { MinimumLogLevel = Levels.Name(level) });
-        }
-    }
-
-    private sealed class Config
-    {
-        public string? MinimumLogLevel { get; set; }
-    }
+    public void SetMinimumLevel(int level) => _level.Set(level);
 
     private static T? Load<T>(string path) where T : class
     {

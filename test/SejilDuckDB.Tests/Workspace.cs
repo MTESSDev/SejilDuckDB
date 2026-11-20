@@ -14,7 +14,8 @@ internal sealed class Workspace : IDisposable
         Options = new SejilDuckOptions { DataDirectory = Directory, NodeName = "node-test" };
         configure?.Invoke(Options);
 
-        Store = new LogFileStore(Directory);
+        // the tests write events of every level: the site would drop what is below Warning, which is the default
+        Store = new LogFileStore(Directory, defaultMinimumLevel: 0);
         Reader = new LogReader(Store, Microsoft.Extensions.Options.Options.Create(Options));
     }
 
@@ -46,6 +47,7 @@ internal sealed class Workspace : IDisposable
     public void Dispose()
     {
         WriteQueue.Forget(Directory); // stops the writer of the folder
+        MinimumLevelStore.Forget(Directory);
         try
         {
             System.IO.Directory.Delete(Directory, recursive: true);
