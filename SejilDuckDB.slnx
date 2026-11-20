@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/sample/">
+    <Project Path="sample/SampleApp/SampleApp.csproj" />
+    <Project Path="sample/SampleSender/SampleSender.csproj" />
+    <Project Path="sample/SampleTraces/SampleTraces.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/SejilDuckDB/SejilDuckDB.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/SejilDuckDB.Tests/SejilDuckDB.Tests.csproj" />
+  </Folder>
+</Solution>
