@@ -44,11 +44,12 @@ public static class SejilDuckExtensions
             var directory = Path.IsPathRooted(settings.DataDirectory)
                 ? settings.DataDirectory
                 : Path.Combine(provider.GetRequiredService<IHostEnvironment>().ContentRootPath, settings.DataDirectory);
-            return new LogFileStore(directory);
+            return new LogFileStore(directory, settings.QueueLimit);
         });
         services.TryAddSingleton<LogReader>();
         services.TryAddSingleton<MetaStore>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, MaintenanceService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, WriteQueueFlushService>());
 
         return services;
     }

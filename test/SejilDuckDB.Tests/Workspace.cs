@@ -45,6 +45,7 @@ internal sealed class Workspace : IDisposable
 
     public void Dispose()
     {
+        WriteQueue.Forget(Directory); // stops the writer of the folder
         try
         {
             System.IO.Directory.Delete(Directory, recursive: true);

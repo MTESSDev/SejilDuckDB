@@ -67,6 +67,12 @@ public sealed class SejilDuckOptions
     /// <summary>DuckDB threads for one search. Null: one per core.</summary>
     public int? DuckDbThreads { get; set; }
 
+    /// <summary>
+    /// Events that may wait to be written, from the route <c>/log</c> and from a local sink together. Beyond it <c>/log</c> answers 503 (the
+    /// sender keeps its batch and tries again) and the sink drops the newest events. 50000 by default.
+    /// </summary>
+    public int QueueLimit { get; set; } = 50_000;
+
     /// <summary>How often the files are compressed and purged. 1 hour by default.</summary>
     public TimeSpan MaintenanceEvery { get; set; } = TimeSpan.FromHours(1);
 }

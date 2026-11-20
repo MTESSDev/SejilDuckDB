@@ -38,6 +38,7 @@ public sealed class HttpTests : IAsyncLifetime
     {
         await _app.StopAsync();
         await _app.DisposeAsync();
+        SejilDuckDB.Storage.WriteQueue.Forget(_directory);
         try
         {
             Directory.Delete(_directory, recursive: true);

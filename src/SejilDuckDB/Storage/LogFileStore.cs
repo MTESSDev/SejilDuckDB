@@ -29,31 +29,50 @@ internal sealed class LogFileStore
         SkipValidation = true, // several top-level objects, one per line
     };
 
-    private readonly IdGenerator _ids = new();
+    // One generator for the whole process: the site and a sink on the same folder must not hand out the same id.
+    private static readonly IdGenerator Ids = new();
 
-    public LogFileStore(string directory)
+    /// <param name="directory">The folder of the log files.</param>
+    /// <param name="queueLimit">Most events waiting to be written (see <see cref="WriteQueue"/>), when this store is the first on the folder.</param>
+    public LogFileStore(string directory, int queueLimit = WriteQueue.DefaultLimit)
     {
         Directory = directory;
         System.IO.Directory.CreateDirectory(directory);
+
+        // The queue of the folder, shared by every store on it: the route /log and a local sink write through the same one.
+        var full = Path.GetFullPath(directory);
+        Queue = WriteQueue.For(full, () => new WriteQueue(
+            batch => WriteBatchAsync(full, batch),
+            queueLimit,
+            window: TimeSpan.FromMilliseconds(10),
+            retryDelay: TimeSpan.FromSeconds(10)));
     }
 
     public string Directory { get; }
 
+    /// <summary>The one queue through which this folder is written.</summary>
+    public WriteQueue Queue { get; }
+
     public static string DayKey(DateTime localDate) => localDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// Appends the batch to the files of its days. Returns false when it could not be written, so that the caller can have the
-    /// sender retry. A batch that spans several days is written day by day: if the second write fails, the first stays and the
-    /// retry repeats it (a duplicate, never a loss).
+    /// Writes the events and returns when they are written (they wait in the shared queue, so that many callers at once cost a few
+    /// appends). False when they could not be written, so that the caller can have the sender retry. The events of a batch that
+    /// spans several days are written day by day: if the second write fails, the first stays and the retry repeats it (a duplicate,
+    /// never a loss).
     /// </summary>
-    public async Task<bool> TryAppendAsync(IReadOnlyList<LogEvent> events, string sourceApp, CancellationToken cancellationToken = default)
+    public Task<bool> TryAppendAsync(IReadOnlyList<LogEvent> events, string sourceApp, CancellationToken cancellationToken = default)
+        => Queue.SubmitAsync(events, sourceApp);
+
+    // What the writer of the queue does with what has gathered: one append per day-file for the whole batch.
+    private static async Task<bool> WriteBatchAsync(string directory, IReadOnlyList<(LogEvent Event, string App)> batch)
     {
         try
         {
             var byDay = new Dictionary<string, ArrayBufferWriter<byte>>();
             var writer = new Utf8JsonWriter(Stream.Null, WriterOptions);
 
-            foreach (var e in events)
+            foreach (var (e, app) in batch)
             {
                 var local = e.Timestamp.ToLocalTime().DateTime;
                 var key = DayKey(local);
@@ -63,7 +82,7 @@ internal sealed class LogFileStore
                 }
 
                 writer.Reset(buffer);
-                WriteLine(writer, e, local, sourceApp, _ids.Next());
+                WriteLine(writer, e, local, app, Ids.Next());
                 writer.Flush();
                 buffer.GetSpan(1)[0] = (byte)'\n';
                 buffer.Advance(1);
@@ -71,13 +90,7 @@ internal sealed class LogFileStore
 
             foreach (var (key, buffer) in byDay)
             {
-                var path = Path.Combine(Directory, $"log-{key}.jsonl");
-
-                // FileShare.ReadWrite: a search can read the file while it grows, and a second process of the site (IIS keeps the
-                // old one alive while it recycles) can append too. Each batch is one write at the end of the file.
-                await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, 4096, useAsync: true);
-                await stream.WriteAsync(buffer.WrittenMemory, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
+                await AppendAsync(Path.Combine(directory, $"log-{key}.jsonl"), buffer.WrittenMemory);
             }
 
             return true;
@@ -85,6 +98,33 @@ internal sealed class LogFileStore
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    // FileMode.Append is NOT an atomic append in .NET: the position of the end of the file is read when the file is opened and each write
+    // goes there, so two writers on the file at once overwrite each other (events were lost that way: 475 of 8000 with two processes).
+    // In this process the queue has a single writer. Between processes (IIS keeps the old one alive while it recycles, or a sink in
+    // another process) FileShare.Read makes writers take turns: a second one cannot open the file until the first has closed it, and
+    // waits. Searches can still read the file while it grows.
+    private const int OpenAttempts = 100;                       // 100 x 30 ms: a few seconds, for a write that takes milliseconds
+    private static readonly TimeSpan OpenRetryDelay = TimeSpan.FromMilliseconds(30);
+
+    private static async Task AppendAsync(string path, ReadOnlyMemory<byte> bytes)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
+                await stream.WriteAsync(bytes);
+                await stream.FlushAsync();
+                return;
+            }
+            catch (IOException) when (attempt < OpenAttempts)
+            {
+                // another handle has the file (another process, a search that has it open, the compression): wait for its turn
+                await Task.Delay(OpenRetryDelay);
+            }
         }
     }
 
@@ -172,7 +212,13 @@ internal sealed class LogFileStore
         return DateTime.TryParseExact(fileName.AsSpan(4, 8), "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
     }
 
-    /// <summary>Unique, increasing ids: microseconds since 1970 in the high bits, a per-process number in the low ones.</summary>
+    /// <summary>
+    /// Ids that increase in a process and tell the events apart: microseconds since 1970 in the high bits, a number that the process
+    /// draws at random (10 bits) in the low ones. Two processes on the same folder can only collide if they hand out an id in the very
+    /// same microsecond with the same random number: about once in a thousand coincidences, and a coincidence needs two events in the
+    /// same microsecond, which at the volume this is made for (a few events a second) does not happen. An id only breaks the ties between
+    /// events with the same time, and names an event in the viewer; it is not a clock.
+    /// </summary>
     private sealed class IdGenerator
     {
         private static readonly long EpochTicks = DateTime.UnixEpoch.Ticks;

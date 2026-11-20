@@ -1,6 +1,6 @@
-# SejilDuckDB
+﻿# SejilDuckDB
 
-> **Beta** (`0.1.0-beta.1`). Tested with real files, a real DuckDB and two real servers behind a header-aware balancer, but not yet in production behind IIS and the real load balancer.
+> **Beta** (`0.1.0-beta.2`). Tested with real files, a real DuckDB and two real servers behind a header-aware balancer, but not yet in production behind IIS and the real load balancer.
 
 A log site for ASP.NET Core with **no database server**. Applications send their logs with `Serilog.Sinks.Http`; the site keeps them in **local JSON Lines files** (one per day, compressed to `.gz` after a few days, deleted after a retention) and a web viewer searches them with **DuckDB**.
 
@@ -9,12 +9,12 @@ It is built from the viewer of [SejilSQL](https://github.com/MTESSDev/SejilSQL) 
 With **several servers**, each one writes only to its own disk. The viewer asks every server (the load balancer is told which one with a header, `x-nlb2`) and **merges the answers**.
 
 ```
-Applications ──(Serilog.Sinks.Http  POST /log)──►  load balancer ──► server A  (its own files)
-                                                                 └──► server B  (its own files)
+Applications â”€â”€(Serilog.Sinks.Http  POST /log)â”€â”€â–º  load balancer â”€â”€â–º server A  (its own files)
+                                                                 â””â”€â”€â–º server B  (its own files)
 
-Browser ──► viewer served by A or B
-        ├── POST /logs/events   x-nlb2: srv-a ──► A
-        └── POST /logs/events   x-nlb2: srv-b ──► B        ... and merges the two answers
+Browser â”€â”€â–º viewer served by A or B
+        â”œâ”€â”€ POST /logs/events   x-nlb2: srv-a â”€â”€â–º A
+        â””â”€â”€ POST /logs/events   x-nlb2: srv-b â”€â”€â–º B        ... and merges the two answers
 ```
 
 ## Getting started
@@ -44,7 +44,21 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 ```
 
-The ingest route is anonymous (the senders have no identity to present). The site answers `503` when it cannot write a batch, so the sender keeps it and tries again. The viewer and its API can be put behind an authentication scheme (`AuthenticationScheme`).
+The ingest route is anonymous (the senders have no identity to present). It answers `200` only once the events are **written to the files**; when it cannot write them (or the queue is full) it answers `503`, so the sender keeps its batch and tries again. The viewer and its API can be put behind an authentication scheme (`AuthenticationScheme`).
+
+## The site's own logs: a local sink, with no HTTP
+
+The application that hosts the site can write its own logs straight to the files, without posting them to itself. It can do so **at the same time** as it receives the logs of other applications over HTTP:
+
+```csharp
+builder.Services.AddSejilDuck(o => o.DataDirectory = @"D:\logs");
+builder.Host.UseSerilog((context, services, logger) => logger
+    .WriteTo.SejilDuck(services, sourceApp: "MySite"));   // needs AddSejilDuck() above
+```
+
+For a logger built before the application (a bootstrap logger), or a process that does not host the site, give it the folder: `.WriteTo.SejilDuck(@"D:\logs", "MyApp")`. The compression and the purge of the old files stay with the site that owns the folder.
+
+**One queue.** Everything that is written to a folder in a process goes through one queue: the batches received on `/log` and the events of the sink alike. A single writer takes what has gathered (about 10 ms' worth, at most 5000 events) and appends it to each day's file in one go, so a hundred requests at once cost a few appends. The route waits for its events to be written before it answers; the sink does not wait (it never blocks the application, keeps what it could not write and tries again, and drops the newest events when the queue is full, at `QueueLimit`). At shutdown the queue is flushed. The same event leaves the same line whichever way it came (property values as text, whatever the culture of the machine).
 
 ## Several servers
 
@@ -79,14 +93,14 @@ A maintenance service runs every hour: it compresses the days past `CompressAfte
 
 ## Searching
 
-Newest first, **one day at a time**: a page is full as soon as enough events are found, so the newest events cost the same whatever the size of the history. A search that finds little reads back through the days; after `SearchBudget` (8 s) it hands back what it found and the viewer asks again from where it stopped (it shows *"Searching… back to 2026-11-02"*).
+Newest first, **one day at a time**: a page is full as soon as enough events are found, so the newest events cost the same whatever the size of the history. A search that finds little reads back through the days; after `SearchBudget` (8 s) it hands back what it found and the viewer asks again from where it stopped (it shows *"Searchingâ€¦ back to 2026-11-02"*).
 
 The query language is the one of SejilSQL: a word (message, exception and properties), `UserName = bob`, `RequestPath like '%forms%'`, `level = Error`, `sourceApp = 'OIM' and message like '%timeout%'`, with `and` / `&&`, `or` / `||` and parentheses. Differences:
 
 - a property **name is case sensitive** (`UserName`, not `username`); its **value** is not;
 - a bare word is also looked for in the property **names** (properties are searched as text).
 
-Measured on this machine (10-core ARM laptop CPU, SSD) with **100 000 events a day**, 7 days (700 000 events, 245 bytes each, 163 MB; 15 MB compressed). The numbers are for 7 days, not 90 — the searches that read everything scale with the number of days:
+Measured on this machine (10-core ARM laptop CPU, SSD) with **100 000 events a day**, 7 days (700 000 events, 245 bytes each, 163 MB; 15 MB compressed). The numbers are for 7 days, not 90 â€” the searches that read everything scale with the number of days:
 
 | Search | Time |
 |---|---|
@@ -110,13 +124,15 @@ All on `SejilDuckOptions` (bindable from configuration, see the sample's `appset
 | `CompressAfterDays` / `RetentionDays` | 7 / 90 (null: never) |
 | `PageSize` / `SearchBudget` | 100 / 8 s |
 | `MinimumLogLevel` | `Warning` (the level the applications read on `GET /logs/min-log-level`) |
+| `QueueLimit` | 50000 events waiting to be written, from `/log` and the sink together |
 | `DuckDbMemoryLimit` / `DuckDbThreads` | DuckDB's own |
 
 ## Things to know
 
 - **Logs only, and a log can be lost.** There is no replication: when a disk is lost, its logs are. A batch that spans several days is written day by day; if the second write fails, the retry repeats the first (a duplicate, never a loss).
 - **Clocks**: servers are merged on the time of the events, so keep them on NTP.
-- **Several processes** of the site on one server (IIS keeps the old one alive while it recycles) can append to the same file: each batch is one write at the end.
+- **Several processes on one folder** (IIS keeps the old process alive while it recycles, or a sink runs in another process) take turns to write: a file is opened for writing by one process at a time, and a second one waits for it (a few milliseconds). Tested with two real processes and eight clients at full speed: nothing lost. (`FileMode.Append` does not append atomically in .NET: the first version of this library let two writers overwrite each other and lost about 6 % of the events with two processes.)
+- **A request that is aborted** while its events wait to be written does not take them back: they are written all the same, and a sender that sends them again leaves a duplicate.
 - **DuckDB is a native library** (`DuckDB.NET.Data.Full`). Publish for the platform of the server (`win-x64`) and check that it loads there.
 - Not covered: the OpenTelemetry traces and metrics (see `AddSejilSlowTraces` in SejilSQL for slow requests and thread pool starvation, which are plain log events and work here too).
 
@@ -126,7 +142,7 @@ All on `SejilDuckOptions` (bindable from configuration, see the sample's `appset
 
 ```powershell
 dotnet build
-dotnet test                                      # 46 tests, real DuckDB and real files
+dotnet test                                      # 75 tests, real DuckDB and real files
 cd src/SejilDuckDB.Client
 npm install
 npm test                                         # 33 tests
@@ -136,4 +152,4 @@ cd ../..; dotnet pack src/SejilDuckDB -c Release -o nupkg
 
 ## License
 
-Apache 2.0. Copyright © Alaa Masoud, Dany Côté. A fork of [Sejil](https://github.com/alaatm/Sejil).
+Apache 2.0. Copyright Â© Alaa Masoud, Dany CÃ´tÃ©. A fork of [Sejil](https://github.com/alaatm/Sejil).
